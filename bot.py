@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import requests
 import time
-from eth_account import Account
 from colorama import Fore, Style, init
 import sys
 
@@ -10,7 +9,6 @@ init(autoreset=True)
 class CircleFaucetBot:
     def __init__(self):
         self.api_url = "https://faucet.circle.com/api/graphql"
-        # သင်ပေးထားတဲ့ Site Key
         self.site_key = "6LcNs_0pAAAAAJuAAa-VQryi8XsocHubBk-YlUy2" 
         self.page_url = "https://faucet.circle.com"
         self.accounts = []
@@ -20,7 +18,7 @@ class CircleFaucetBot:
         print(f"{Fore.CYAN}{Style.BRIGHT}")
         print("************************************************************")
         print(f"* ARC TESTNET - CIRCLE FAUCET AUTO BOT              *")
-        print("* FIXED: NO CAPTCHA IN VARIABLES | HEADER INJECTED  *")
+        print("* FIXED: ACTION HEADER + DUAL TOKEN                 *")
         print("************************************************************")
         print("-" * 60)
 
@@ -36,7 +34,7 @@ class CircleFaucetBot:
             sys.exit(1)
 
     def solve_captcha(self, idx):
-        print(f"{Fore.CYAN}[Account #{idx}] ⏳ Solving ReCAPTCHA...")
+        print(f"{Fore.CYAN}[Account #{idx}] ⏳ Solving ReCAPTCHA via 2Captcha...")
         params = {
             'key': self.captcha_api_key,
             'method': 'userrecaptcha',
@@ -48,7 +46,7 @@ class CircleFaucetBot:
         try:
             res = requests.post("http://2captcha.com/in.php", data=params).json()
             if res.get('status') != 1: 
-                print(f"{Fore.RED}2Captcha Error: {res.get('request')}")
+                print(f"{Fore.RED}❌ 2Captcha Error: {res.get('request')}")
                 return None
             
             job_id = res.get('request')
@@ -60,11 +58,10 @@ class CircleFaucetBot:
                     return res.get('request')
             return None
         except Exception as e:
-            print(f"{Fore.RED}Captcha Exception: {e}")
+            print(f"{Fore.RED}❌ Captcha Exception: {e}")
             return None
 
     def claim_token(self, address, token_type, captcha_token):
-        # Browser မှာ တွေ့ရတဲ့ GraphQL Schema အတိုင်း အတိအကျ ပြန်ပြင်ထားပါတယ်
         query = """
         mutation RequestToken($input: RequestTokenInput!) {
           requestToken(input: $input) {
@@ -86,7 +83,6 @@ class CircleFaucetBot:
         }
         """
         
-        # Variables ထဲမှာ captchaToken မပါတော့ပါ (Error တက်သောကြောင့်)
         variables = {
             "input": {
                 "destinationAddress": address,
@@ -95,14 +91,15 @@ class CircleFaucetBot:
             }
         }
         
+        # သင်ပေးလိုက်တဲ့ Header နှစ်ခုလုံးကို အတိအကျ ထည့်သွင်းထားပါတယ်
         headers = {
             'accept': '*/*',
             'content-type': 'application/json',
             'origin': 'https://faucet.circle.com',
             'referer': 'https://faucet.circle.com/',
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            # Token ကို Header မှာပဲ ထည့်သွင်းပါတယ်
-            'recaptcha-token': captcha_token
+            'recaptcha-action': 'request_token',  # အသစ်ထည့်လိုက်သော Header
+            'recaptcha-token': captcha_token      # Captcha Token Header
         }
         
         payload = {
@@ -115,7 +112,6 @@ class CircleFaucetBot:
             response = requests.post(self.api_url, json=payload, headers=headers, timeout=30)
             res_json = response.json()
             
-            # API Error များ ရှိမရှိ စစ်ဆေးခြင်း
             if 'errors' in res_json:
                 return False, res_json['errors'][0]['message']
             
@@ -138,6 +134,7 @@ class CircleFaucetBot:
             print(f"\n{Fore.MAGENTA}=== STARTING ROUND {round_count} ===")
             for idx, addr in enumerate(self.accounts, 1):
                 for t_type in ["USDC", "EURC"]:
+                    # Token တစ်ခုစီအတွက် Captcha အသစ် တောင်းခံဖြေရှင်းခြင်း
                     captcha_token = self.solve_captcha(idx)
                     
                     if captcha_token:
@@ -163,7 +160,7 @@ class CircleFaucetBot:
             total_seconds = 3 * 60 * 60
             while total_seconds > 0:
                 h, m, s = total_seconds // 3600, (total_seconds % 3600) // 60, total_seconds % 60
-                print(f"{Fore.YELLOW}Next round in: {h:02d}:{m:02d}:{s:02d}", end="\r")
+                print(f"{Fore.YELLOW}Next round in: {h:02d}:{minutes:02d}:{s:02d}", end="\r")
                 time.sleep(1)
                 total_seconds -= 1
             round_count += 1
