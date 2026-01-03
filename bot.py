@@ -20,7 +20,7 @@ class CircleFaucetBot:
         print(f"{Fore.CYAN}{Style.BRIGHT}")
         print("************************************************************")
         print(f"* ARC TESTNET - CIRCLE FAUCET (STRICT SKIP VERSION) *")
-        print("* SKIP IMMEDIATELY ON RATE_LIMITED                  *")
+        print("* ADB NODE                  *")
         print("************************************************************")
 
     def load_config(self):
