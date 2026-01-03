@@ -14,12 +14,13 @@ class CircleFaucetBot:
         self.session = requests.Session()
         self.accounts = []
         self.captcha_api_key = ""
+        self.max_retries = 3 # တစ်ကောင့်ကို ၃ ကြိမ်အထိ Retry လုပ်မည်
 
     def welcome(self):
         print(f"{Fore.CYAN}{Style.BRIGHT}")
         print("************************************************************")
-        print(f"* ARC TESTNET - CIRCLE FAUCET (FINAL OPTIMIZED)     *")
-        print("* INTERVAL: 2 HOURS 2 MINUTES                       *")
+        print(f"* ARC TESTNET - CIRCLE FAUCET (RETRY LOGIC ENABLED) *")
+        print("* INTERVAL: 2 HOURS 2 MINUTES | RETRIES: 3 TIMES   *")
         print("************************************************************")
 
     def load_config(self):
@@ -68,7 +69,6 @@ class CircleFaucetBot:
                 result_payload = {"clientKey": self.captcha_api_key, "taskId": task_id}
                 res = requests.post("https://api.capmonster.cloud/getTaskResult", json=result_payload, timeout=20).json()
                 if res.get('status') == "ready":
-                    print(f"{Fore.GREEN}[Account #{idx}] ✅ Token Received!")
                     return res.get('solution', {}).get('gRecaptchaResponse')
             return None
         except: return None
@@ -101,7 +101,6 @@ class CircleFaucetBot:
                 return False, res_json['errors'][0]['message']
             
             data = res_json.get('data', {}).get('requestToken', {})
-            # Logic Update: Hash သို့မဟုတ် Success status တစ်ခုခုရှိရင် အောင်မြင်သည်ဟု သတ်မှတ်မည်
             if data:
                 if data.get('hash'):
                     return True, data['hash']
@@ -110,6 +109,35 @@ class CircleFaucetBot:
             return False, f"Status: {data.get('status', 'Unknown')}"
         except Exception as e:
             return False, str(e)
+
+    def process_account(self, idx, addr, t_type):
+        """အကောင့်တစ်ခုချင်းစီအတွက် Retry Logic ဖြင့် Claim ခြင်း"""
+        for attempt in range(1, self.max_retries + 1):
+            retry_msg = f" (Attempt {attempt}/{self.max_retries})" if attempt > 1 else ""
+            print(f"{Fore.YELLOW}[Account #{idx}] Claiming {t_type}{retry_msg}...")
+            
+            token = self.solve_captcha(idx)
+            if not token:
+                print(f"{Fore.RED}❌ Captcha Solving Failed. Retrying...")
+                continue
+            
+            success, result = self.claim_token(addr, t_type, token)
+            if success:
+                print(f"{Fore.GREEN}✅ SUCCESS: {result}")
+                return True
+            else:
+                print(f"{Fore.RED}❌ FAILED: {result}")
+                
+                # အကယ်၍ Error က Captcha ကြောင့်မဟုတ်ဘဲ တခြားကန့်သတ်ချက်ကြောင့်ဆိုရင် Retry မလုပ်တော့ပါ
+                stop_errors = ["rate limit", "cooldown", "already", "denied", "forbidden"]
+                if any(err in result.lower() for err in stop_errors):
+                    print(f"{Fore.YELLOW}ℹ️ Stopping retries for this account due to permanent error.")
+                    break
+                
+                if attempt < self.max_retries:
+                    print(f"{Fore.WHITE}⏳ Waiting 10s before retry...")
+                    time.sleep(10)
+        return False
 
     def run(self):
         self.welcome()
@@ -120,15 +148,9 @@ class CircleFaucetBot:
             self.refresh_session()
             for idx, addr in enumerate(self.accounts, 1):
                 for t_type in ["USDC", "EURC"]:
-                    token = self.solve_captcha(idx)
-                    if token:
-                        print(f"{Fore.YELLOW}[Account #{idx}] Claiming {t_type}...")
-                        success, result = self.claim_token(addr, t_type, token)
-                        if success: print(f"{Fore.GREEN}✅ SUCCESS: {result}")
-                        else: print(f"{Fore.RED}❌ FAILED: {result}")
-                    time.sleep(10)
+                    self.process_account(idx, addr, t_type)
+                    time.sleep(5)
             
-            # ၂ နာရီ ၂ မိနစ် စောင့်ဆိုင်းခြင်း (7320 စက္ကန့်)
             print(f"\n{Fore.CYAN}✨ Round {round_count} Finished.")
             total_seconds = (2 * 60 * 60) + (2 * 60) 
             while total_seconds > 0:
