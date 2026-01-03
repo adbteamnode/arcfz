@@ -20,7 +20,7 @@ class CircleFaucetBot:
         print(f"{Fore.CYAN}{Style.BRIGHT}")
         print("************************************************************")
         print(f"* ARC TESTNET - CIRCLE FAUCET AUTO BOT              *")
-        print("* FIXED GRAPHQL + CAPTCHA INJECTED                  *")
+        print("* FIXED: NO CAPTCHA IN VARIABLES | HEADER INJECTED  *")
         print("************************************************************")
         print("-" * 60)
 
@@ -64,7 +64,7 @@ class CircleFaucetBot:
             return None
 
     def claim_token(self, address, token_type, captcha_token):
-        # Browser Payload အတိုင်း အတိအကျ ပြင်ဆင်ထားသော Query
+        # Browser မှာ တွေ့ရတဲ့ GraphQL Schema အတိုင်း အတိအကျ ပြန်ပြင်ထားပါတယ်
         query = """
         mutation RequestToken($input: RequestTokenInput!) {
           requestToken(input: $input) {
@@ -86,12 +86,12 @@ class CircleFaucetBot:
         }
         """
         
+        # Variables ထဲမှာ captchaToken မပါတော့ပါ (Error တက်သောကြောင့်)
         variables = {
             "input": {
                 "destinationAddress": address,
                 "token": token_type,
-                "blockchain": "ARC",
-                "captchaToken": captcha_token
+                "blockchain": "ARC"
             }
         }
         
@@ -101,6 +101,7 @@ class CircleFaucetBot:
             'origin': 'https://faucet.circle.com',
             'referer': 'https://faucet.circle.com/',
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            # Token ကို Header မှာပဲ ထည့်သွင်းပါတယ်
             'recaptcha-token': captcha_token
         }
         
@@ -114,6 +115,7 @@ class CircleFaucetBot:
             response = requests.post(self.api_url, json=payload, headers=headers, timeout=30)
             res_json = response.json()
             
+            # API Error များ ရှိမရှိ စစ်ဆေးခြင်း
             if 'errors' in res_json:
                 return False, res_json['errors'][0]['message']
             
@@ -123,7 +125,7 @@ class CircleFaucetBot:
             elif data and data.get('status'):
                 return False, f"Status: {data['status']}"
             
-            return False, "Response missing transaction hash."
+            return False, "Response missing data/hash."
         except Exception as e:
             return False, str(e)
 
@@ -135,7 +137,6 @@ class CircleFaucetBot:
         while True:
             print(f"\n{Fore.MAGENTA}=== STARTING ROUND {round_count} ===")
             for idx, addr in enumerate(self.accounts, 1):
-                # USDC နဲ့ EURC နှစ်မျိုးလုံးကို တောင်းမယ်
                 for t_type in ["USDC", "EURC"]:
                     captcha_token = self.solve_captcha(idx)
                     
