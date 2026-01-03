@@ -14,13 +14,13 @@ class CircleFaucetBot:
         self.session = requests.Session()
         self.accounts = []
         self.captcha_api_key = ""
-        self.max_retries = 3 # တစ်ကောင့်ကို ၃ ကြိမ်အထိ Retry လုပ်မည်
+        self.max_retries = 3 
 
     def welcome(self):
         print(f"{Fore.CYAN}{Style.BRIGHT}")
         print("************************************************************")
-        print(f"* ARC TESTNET - CIRCLE FAUCET (RETRY LOGIC ENABLED) *")
-        print("* INTERVAL: 2 HOURS 2 MINUTES | RETRIES: 3 TIMES   *")
+        print(f"* ARC TESTNET - CIRCLE FAUCET (SMART SKIP ENABLED)  *")
+        print("* RETRY ON CAPTCHA FAIL | SKIP ON RATE LIMIT       *")
         print("************************************************************")
 
     def load_config(self):
@@ -60,7 +60,6 @@ class CircleFaucetBot:
         try:
             create_res = requests.post("https://api.capmonster.cloud/createTask", json=payload, timeout=20).json()
             if create_res.get('errorId') != 0:
-                print(f"{Fore.RED}❌ CapMonster Error: {create_res.get('errorCode')}")
                 return None
             
             task_id = create_res.get('taskId')
@@ -105,38 +104,41 @@ class CircleFaucetBot:
                 if data.get('hash'):
                     return True, data['hash']
                 elif data.get('status') == 'success':
-                    return True, "Request submitted (Status: Success)"
+                    return True, "Success"
             return False, f"Status: {data.get('status', 'Unknown')}"
         except Exception as e:
             return False, str(e)
 
     def process_account(self, idx, addr, t_type):
-        """အကောင့်တစ်ခုချင်းစီအတွက် Retry Logic ဖြင့် Claim ခြင်း"""
         for attempt in range(1, self.max_retries + 1):
-            retry_msg = f" (Attempt {attempt}/{self.max_retries})" if attempt > 1 else ""
-            print(f"{Fore.YELLOW}[Account #{idx}] Claiming {t_type}{retry_msg}...")
+            retry_msg = f" (Retry {attempt-1})" if attempt > 1 else ""
+            print(f"{Fore.YELLOW}[Account #{idx}] {t_type}{retry_msg}...", end=" ")
             
             token = self.solve_captcha(idx)
             if not token:
-                print(f"{Fore.RED}❌ Captcha Solving Failed. Retrying...")
+                print(f"{Fore.RED}Captcha Error.")
                 continue
             
             success, result = self.claim_token(addr, t_type, token)
             if success:
-                print(f"{Fore.GREEN}✅ SUCCESS: {result}")
+                print(f"{Fore.GREEN}✅ {result}")
                 return True
             else:
-                print(f"{Fore.RED}❌ FAILED: {result}")
+                # Rate Limit သို့မဟုတ် Cooldown ဆိုလျှင် ချက်ချင်း Skip မည်
+                # Circle တွင် တွေ့ရလေ့ရှိသော Rate limit စာသားများကို စစ်ဆေးခြင်း
+                msg = result.lower()
+                skip_keywords = ["rate limit", "cooldown", "too many", "already", "denied", "forbidden"]
                 
-                # အကယ်၍ Error က Captcha ကြောင့်မဟုတ်ဘဲ တခြားကန့်သတ်ချက်ကြောင့်ဆိုရင် Retry မလုပ်တော့ပါ
-                stop_errors = ["rate limit", "cooldown", "already", "denied", "forbidden"]
-                if any(err in result.lower() for err in stop_errors):
-                    print(f"{Fore.YELLOW}ℹ️ Stopping retries for this account due to permanent error.")
-                    break
+                if any(k in msg for k in skip_keywords):
+                    print(f"{Fore.RED}❌ {result} (Skipping...)")
+                    break 
                 
+                # အခြား error (ဥပမာ- Captcha failed) ဖြစ်လျှင် Retry လုပ်မည်
+                print(f"{Fore.RED}❌ {result}")
                 if attempt < self.max_retries:
-                    print(f"{Fore.WHITE}⏳ Waiting 10s before retry...")
-                    time.sleep(10)
+                    time.sleep(5)
+                else:
+                    print(f"{Fore.WHITE}[Account #{idx}] Max retries reached. Moving on.")
         return False
 
     def run(self):
@@ -149,7 +151,8 @@ class CircleFaucetBot:
             for idx, addr in enumerate(self.accounts, 1):
                 for t_type in ["USDC", "EURC"]:
                     self.process_account(idx, addr, t_type)
-                    time.sleep(5)
+                    time.sleep(2)
+                time.sleep(10)
             
             print(f"\n{Fore.CYAN}✨ Round {round_count} Finished.")
             total_seconds = (2 * 60 * 60) + (2 * 60) 
