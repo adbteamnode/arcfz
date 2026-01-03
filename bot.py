@@ -18,8 +18,8 @@ class CircleFaucetBot:
     def welcome(self):
         print(f"{Fore.CYAN}{Style.BRIGHT}")
         print("************************************************************")
-        print(f"* ARC TESTNET - CIRCLE FAUCET (STABLE VERSION)     *")
-        print("* COOKIES + APOLLO + CAPTCHA FIX                   *")
+        print(f"* ARC TESTNET - CIRCLE FAUCET (CAPMONSTER VERSION)  *")
+        print("* COOKIES + APOLLO + CAPMONSTER BYPASS             *")
         print("************************************************************")
 
     def load_config(self):
@@ -28,13 +28,13 @@ class CircleFaucetBot:
                 self.captcha_api_key = f.readline().strip()
             with open('wallets.txt', 'r') as f:
                 self.accounts = [l.strip() for l in f if l.strip()]
-            print(f"{Fore.GREEN}✅ Loaded {len(self.accounts)} accounts.")
+            print(f"{Fore.GREEN}✅ Config Loaded. ({len(self.accounts)} accounts)")
         except Exception as e:
             print(f"{Fore.RED}❌ File Error: {e}")
             sys.exit(1)
 
     def refresh_session(self):
-        """Cloudflare Cookies ရအောင်ယူခြင်း"""
+        """Cloudflare Cookies ရအောင် Website ကို အရင်သွားဖတ်ခြင်း"""
         headers = {
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
         }
@@ -42,10 +42,11 @@ class CircleFaucetBot:
             self.session.get(self.page_url, headers=headers, timeout=15)
             print(f"{Fore.YELLOW}🔄 Session Cookies Refreshed.")
         except:
-            print(f"{Fore.RED}⚠️ Session Refresh Failed (Network Error)")
+            print(f"{Fore.RED}⚠️ Session Refresh Timeout.")
 
     def solve_captcha(self, idx):
-        print(f"{Fore.CYAN}[Account #{idx}] ⏳ Requesting 2Captcha to solve...")
+        print(f"{Fore.CYAN}[Account #{idx}] ⏳ Requesting CapMonster to solve...")
+        # CapMonster API parameter များ
         params = {
             'key': self.captcha_api_key,
             'method': 'userrecaptcha',
@@ -53,28 +54,31 @@ class CircleFaucetBot:
             'pageurl': self.page_url,
             'invisible': 1,
             'enterprise': 1,
-            'action': 'request_token',
             'json': 1
         }
         try:
-            # 2Captcha ကို session မသုံးဘဲ direct requests နဲ့ ပို့ပါမယ်
-            res = requests.post("http://2captcha.com/in.php", data=params, timeout=20).json()
+            # CapMonster API Endpoint
+            res = requests.post("https://api.capmonster.cloud/in.php", data=params, timeout=20).json()
             if res.get('status') != 1:
-                print(f"{Fore.RED}❌ 2Captcha Error: {res.get('request')}")
+                print(f"{Fore.RED}❌ CapMonster Error: {res.get('request')}")
                 return None
             
             job_id = res.get('request')
-            print(f"{Fore.WHITE}[Account #{idx}] ⏳ Captcha ID: {job_id}. Solving...", end="\r")
+            print(f"{Fore.WHITE}[Account #{idx}] ⏳ CapMonster ID: {job_id}. Polling solution...")
             
-            for _ in range(60):
+            for _ in range(40): # CapMonster က ပိုမြန်လို့ အကြိမ် ၄၀ ပဲထားပါတယ်
                 time.sleep(5)
-                res = requests.get(f"http://2captcha.com/res.php?key={self.captcha_api_key}&action=get&id={job_id}&json=1", timeout=20).json()
+                res = requests.get(f"https://api.capmonster.cloud/res.php?key={self.captcha_api_key}&action=get&id={job_id}&json=1", timeout=20).json()
                 if res.get('status') == 1:
-                    print(f"\n{Fore.GREEN}[Account #{idx}] ✅ Captcha Solved!")
+                    print(f"{Fore.GREEN}[Account #{idx}] ✅ Captcha Solved by CapMonster!")
                     return res.get('request')
+                
+                if res.get('request') == "ERROR_CAPTCHA_UNSOLVABLE":
+                    print(f"{Fore.RED}❌ Unsolvable by CapMonster.")
+                    return None
             return None
         except Exception as e:
-            print(f"\n{Fore.RED}❌ Captcha Request Failed: {e}")
+            print(f"{Fore.RED}❌ CapMonster Request Failed: {e}")
             return None
 
     def claim_token(self, address, token_type, captcha_token):
@@ -102,7 +106,6 @@ class CircleFaucetBot:
         payload = {"operationName": "RequestToken", "query": query, "variables": variables}
         
         try:
-            # Claim လုပ်တဲ့နေရာမှာတော့ Session (Cookies) ကို သုံးပါမယ်
             response = self.session.post(self.api_url, json=payload, headers=headers, timeout=30)
             res_json = response.json()
             
@@ -128,17 +131,17 @@ class CircleFaucetBot:
                 for t_type in ["USDC", "EURC"]:
                     token = self.solve_captcha(idx)
                     if token:
-                        print(f"{Fore.YELLOW}[Account #{idx}] Sending {t_type} Request...")
+                        print(f"{Fore.YELLOW}[Account #{idx}] Claiming {t_type}...")
                         success, result = self.claim_token(addr, t_type, token)
                         if success:
-                            print(f"{Fore.GREEN}✅ Success: {result}")
+                            print(f"{Fore.GREEN}✅ SUCCESS: {result}")
                         else:
-                            print(f"{Fore.RED}❌ Failed: {result}")
+                            print(f"{Fore.RED}❌ FAILED: {result}")
                     else:
-                        print(f"{Fore.RED}❌ Captcha Timeout/Error")
-                    time.sleep(5)
+                        print(f"{Fore.RED}❌ Captcha Timeout/Error.")
+                    time.sleep(5) # Delay between tokens
             
-            print(f"\n{Fore.CYAN}✨ Round {round_count} finished. Waiting 3 hours...")
+            print(f"\n{Fore.CYAN}✨ Round Finished. Next round in 3 hours.")
             time.sleep(3 * 3600)
             round_count += 1
 
