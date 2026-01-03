@@ -19,8 +19,8 @@ class CircleFaucetBot:
     def welcome(self):
         print(f"{Fore.CYAN}{Style.BRIGHT}")
         print("************************************************************")
-        print(f"* ARC TESTNET - CIRCLE FAUCET (SMART SKIP ENABLED)  *")
-        print("* RETRY ON CAPTCHA FAIL | SKIP ON RATE LIMIT       *")
+        print(f"* ARC TESTNET - CIRCLE FAUCET (STRICT SKIP VERSION) *")
+        print("* SKIP IMMEDIATELY ON RATE_LIMITED                  *")
         print("************************************************************")
 
     def load_config(self):
@@ -40,12 +40,11 @@ class CircleFaucetBot:
         }
         try:
             self.session.get(self.page_url, headers=headers, timeout=15)
-            print(f"{Fore.YELLOW}🔄 Cloudflare Session Refreshed.")
+            print(f"{Fore.YELLOW}🔄 Session Initialized.")
         except:
-            print(f"{Fore.RED}⚠️ Session Refresh Error.")
+            pass
 
     def solve_captcha(self, idx):
-        print(f"{Fore.CYAN}[Account #{idx}] ⏳ Requesting CapMonster...")
         payload = {
             "clientKey": self.captcha_api_key,
             "task": {
@@ -59,14 +58,11 @@ class CircleFaucetBot:
         }
         try:
             create_res = requests.post("https://api.capmonster.cloud/createTask", json=payload, timeout=20).json()
-            if create_res.get('errorId') != 0:
-                return None
-            
+            if create_res.get('errorId') != 0: return None
             task_id = create_res.get('taskId')
             for _ in range(30):
                 time.sleep(3)
-                result_payload = {"clientKey": self.captcha_api_key, "taskId": task_id}
-                res = requests.post("https://api.capmonster.cloud/getTaskResult", json=result_payload, timeout=20).json()
+                res = requests.post("https://api.capmonster.cloud/getTaskResult", json={"clientKey": self.captcha_api_key, "taskId": task_id}, timeout=20).json()
                 if res.get('status') == "ready":
                     return res.get('solution', {}).get('gRecaptchaResponse')
             return None
@@ -75,10 +71,7 @@ class CircleFaucetBot:
     def claim_token(self, address, token_type, captcha_token):
         query = """
         mutation RequestToken($input: RequestTokenInput!) {
-          requestToken(input: $input) {
-            hash
-            status
-          }
+          requestToken(input: $input) { hash status }
         }
         """
         variables = {"input": {"destinationAddress": address, "token": token_type, "blockchain": "ARC"}}
@@ -92,76 +85,71 @@ class CircleFaucetBot:
             'recaptcha-action': 'request_token',
             'recaptcha-token': captcha_token
         }
-        payload = {"operationName": "RequestToken", "query": query, "variables": variables}
         try:
-            response = self.session.post(self.api_url, json=payload, headers=headers, timeout=30)
+            response = self.session.post(self.api_url, json={"operationName": "RequestToken", "query": query, "variables": variables}, headers=headers, timeout=30)
             res_json = response.json()
             if 'errors' in res_json:
                 return False, res_json['errors'][0]['message']
-            
             data = res_json.get('data', {}).get('requestToken', {})
             if data:
-                if data.get('hash'):
-                    return True, data['hash']
-                elif data.get('status') == 'success':
-                    return True, "Success"
-            return False, f"Status: {data.get('status', 'Unknown')}"
+                if data.get('hash'): return True, data['hash']
+                elif data.get('status'): return data.get('status') == 'success', data.get('status')
+            return False, "No Data"
         except Exception as e:
             return False, str(e)
 
     def process_account(self, idx, addr, t_type):
         for attempt in range(1, self.max_retries + 1):
-            retry_msg = f" (Retry {attempt-1})" if attempt > 1 else ""
-            print(f"{Fore.YELLOW}[Account #{idx}] {t_type}{retry_msg}...", end=" ")
+            retry_tag = f" (Retry {attempt-1})" if attempt > 1 else ""
+            print(f"{Fore.WHITE}[Account #{idx}] {t_type}{retry_tag}: ", end="")
             
+            # Captcha ဖြေခြင်း
+            print(f"{Fore.CYAN}Solving...", end="\r")
             token = self.solve_captcha(idx)
             if not token:
                 print(f"{Fore.RED}Captcha Error.")
                 continue
             
+            # Claim လုပ်ခြင်း
             success, result = self.claim_token(addr, t_type, token)
+            
             if success:
                 print(f"{Fore.GREEN}✅ {result}")
                 return True
             else:
-                # Rate Limit သို့မဟုတ် Cooldown ဆိုလျှင် ချက်ချင်း Skip မည်
-                # Circle တွင် တွေ့ရလေ့ရှိသော Rate limit စာသားများကို စစ်ဆေးခြင်း
-                msg = result.lower()
-                skip_keywords = ["rate limit", "cooldown", "too many", "already", "denied", "forbidden"]
+                # Rate Limit စစ်ဆေးခြင်း (Case-insensitive)
+                err_msg = str(result).lower()
+                skip_list = ["rate_limited", "rate limit", "cooldown", "too many", "already", "denied"]
                 
-                if any(k in msg for k in skip_keywords):
-                    print(f"{Fore.RED}❌ {result} (Skipping...)")
-                    break 
+                if any(x in err_msg for x in skip_list):
+                    print(f"{Fore.RED}❌ {result} (Rate Limit - Skipping!)")
+                    return False # Retry Loop ထဲကနေ လုံးဝထွက်ပြီး Skip မည်
                 
-                # အခြား error (ဥပမာ- Captcha failed) ဖြစ်လျှင် Retry လုပ်မည်
+                # အခြား error (ဥပမာ Captcha verification failed) ဆိုလျှင် Retry လုပ်မည်
                 print(f"{Fore.RED}❌ {result}")
                 if attempt < self.max_retries:
-                    time.sleep(5)
+                    time.sleep(3)
                 else:
-                    print(f"{Fore.WHITE}[Account #{idx}] Max retries reached. Moving on.")
+                    print(f"{Fore.WHITE}   Max retries reached.")
         return False
 
     def run(self):
         self.welcome()
         self.load_config()
-        round_count = 1
         while True:
-            print(f"\n{Fore.MAGENTA}=== ROUND {round_count} START ===")
             self.refresh_session()
             for idx, addr in enumerate(self.accounts, 1):
                 for t_type in ["USDC", "EURC"]:
                     self.process_account(idx, addr, t_type)
                     time.sleep(2)
-                time.sleep(10)
             
-            print(f"\n{Fore.CYAN}✨ Round {round_count} Finished.")
-            total_seconds = (2 * 60 * 60) + (2 * 60) 
+            print(f"\n{Fore.CYAN}✨ Round Finished. Waiting 2h 2m...")
+            total_seconds = 7320
             while total_seconds > 0:
                 h, m, s = total_seconds // 3600, (total_seconds % 3600) // 60, total_seconds % 60
                 print(f"{Fore.YELLOW}Next round in: {h:02d}:{m:02d}:{s:02d}", end="\r")
                 time.sleep(1)
                 total_seconds -= 1
-            round_count += 1
 
 if __name__ == "__main__":
     bot = CircleFaucetBot()
