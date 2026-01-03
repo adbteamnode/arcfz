@@ -18,8 +18,8 @@ class CircleFaucetBot:
     def welcome(self):
         print(f"{Fore.CYAN}{Style.BRIGHT}")
         print("************************************************************")
-        print(f"* ARC TESTNET - CIRCLE FAUCET (CAPMONSTER VERSION)  *")
-        print("* COOKIES + APOLLO + CAPMONSTER BYPASS             *")
+        print(f"* ARC TESTNET - CIRCLE FAUCET (CAPMONSTER OPTIMIZED) *")
+        print("* ENTERPRISE SUPPORT + MIN_SCORE 0.9               *")
         print("************************************************************")
 
     def load_config(self):
@@ -34,51 +34,58 @@ class CircleFaucetBot:
             sys.exit(1)
 
     def refresh_session(self):
-        """Cloudflare Cookies ရအောင် Website ကို အရင်သွားဖတ်ခြင်း"""
         headers = {
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
         }
         try:
             self.session.get(self.page_url, headers=headers, timeout=15)
-            print(f"{Fore.YELLOW}🔄 Session Cookies Refreshed.")
+            print(f"{Fore.YELLOW}🔄 Cloudflare Session Initialized.")
         except:
-            print(f"{Fore.RED}⚠️ Session Refresh Timeout.")
+            print(f"{Fore.RED}⚠️ Session Init Timeout.")
 
     def solve_captcha(self, idx):
-        print(f"{Fore.CYAN}[Account #{idx}] ⏳ Requesting CapMonster to solve...")
-        # CapMonster API parameter များ
-        params = {
-            'key': self.captcha_api_key,
-            'method': 'userrecaptcha',
-            'googlekey': self.site_key,
-            'pageurl': self.page_url,
-            'invisible': 1,
-            'enterprise': 1,
-            'json': 1
+        print(f"{Fore.CYAN}[Account #{idx}] ⏳ Requesting High-Score Token from CapMonster...")
+        
+        # CapMonster Enterprise V3 Params
+        payload = {
+            "clientKey": self.captcha_api_key,
+            "task": {
+                "type": "RecaptchaV3TaskProxyless",
+                "websiteURL": self.page_url,
+                "websiteKey": self.site_key,
+                "minScore": 0.9, # Score အမြင့်ဆုံး တောင်းဆိုခြင်း
+                "pageAction": "request_token",
+                "isEnterprise": True # Enterprise Mode On ခြင်း
+            }
         }
+        
         try:
-            # CapMonster API Endpoint
-            res = requests.post("https://api.capmonster.cloud/in.php", data=params, timeout=20).json()
-            if res.get('status') != 1:
-                print(f"{Fore.RED}❌ CapMonster Error: {res.get('request')}")
+            # Create Task
+            create_res = requests.post("https://api.capmonster.cloud/createTask", json=payload, timeout=20).json()
+            if create_res.get('errorId') != 0:
+                print(f"{Fore.RED}❌ CapMonster Error: {create_res.get('errorCode')}")
                 return None
             
-            job_id = res.get('request')
-            print(f"{Fore.WHITE}[Account #{idx}] ⏳ CapMonster ID: {job_id}. Polling solution...")
+            task_id = create_res.get('taskId')
+            print(f"{Fore.WHITE}[Account #{idx}] ⏳ Task ID: {task_id}. Polling solution...", end="\r")
             
-            for _ in range(40): # CapMonster က ပိုမြန်လို့ အကြိမ် ၄၀ ပဲထားပါတယ်
-                time.sleep(5)
-                res = requests.get(f"https://api.capmonster.cloud/res.php?key={self.captcha_api_key}&action=get&id={job_id}&json=1", timeout=20).json()
-                if res.get('status') == 1:
-                    print(f"{Fore.GREEN}[Account #{idx}] ✅ Captcha Solved by CapMonster!")
-                    return res.get('request')
+            # Get Result
+            for _ in range(30):
+                time.sleep(3)
+                result_payload = {"clientKey": self.captcha_api_key, "taskId": task_id}
+                res = requests.post("https://api.capmonster.cloud/getTaskResult", json=result_payload, timeout=20).json()
                 
-                if res.get('request') == "ERROR_CAPTCHA_UNSOLVABLE":
-                    print(f"{Fore.RED}❌ Unsolvable by CapMonster.")
+                if res.get('status') == "ready":
+                    print(f"\n{Fore.GREEN}[Account #{idx}] ✅ Token Received!")
+                    return res.get('solution', {}).get('gRecaptchaResponse')
+                
+                if res.get('errorId') != 0:
+                    print(f"\n{Fore.RED}❌ CapMonster Solve Error: {res.get('errorCode')}")
                     return None
             return None
         except Exception as e:
-            print(f"{Fore.RED}❌ CapMonster Request Failed: {e}")
+            print(f"\n{Fore.RED}❌ CapMonster Network Error: {e}")
             return None
 
     def claim_token(self, address, token_type, captcha_token):
@@ -100,7 +107,11 @@ class CircleFaucetBot:
             'referer': 'https://faucet.circle.com/',
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'recaptcha-action': 'request_token',
-            'recaptcha-token': captcha_token
+            'recaptcha-token': captcha_token,
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin'
         }
         
         payload = {"operationName": "RequestToken", "query": query, "variables": variables}
@@ -138,10 +149,10 @@ class CircleFaucetBot:
                         else:
                             print(f"{Fore.RED}❌ FAILED: {result}")
                     else:
-                        print(f"{Fore.RED}❌ Captcha Timeout/Error.")
-                    time.sleep(5) # Delay between tokens
+                        print(f"{Fore.RED}❌ Captcha Solving Failed.")
+                    time.sleep(10) # IP rate limit ရှောင်ရန်
             
-            print(f"\n{Fore.CYAN}✨ Round Finished. Next round in 3 hours.")
+            print(f"\n{Fore.CYAN}✨ Round {round_count} Finished. Waiting 3 hours...")
             time.sleep(3 * 3600)
             round_count += 1
 
